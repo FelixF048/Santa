@@ -4,7 +4,7 @@
     python colab/tts.py                 # out/santa_silent.mp4 + 配音 → out/santa.mp4
 
 注意：edge-tts 會把字幕文字送到微軟的線上語音服務。不想外送文字就不要執行這支，改用自己的錄音。
-沒有配樂；只有人聲。
+若 out/music.wav 存在（先執行 python colab/music.py），會把配樂墊在人聲底下。
 """
 import asyncio, json, os, re, subprocess, sys
 
@@ -71,7 +71,15 @@ def main():
         ms = int(c["t0"] * 1000)
         filt.append(f"[{i + 1}:a]adelay={ms}|{ms}[a{i}]")
     mix = "".join(f"[a{i}]" for i in range(len(files)))
-    filt.append(f"{mix}amix=inputs={len(files)}:normalize=0:dropout_transition=0,loudnorm=I=-16:TP=-1.5:LRA=11,apad[aout]")
+    music = os.path.join(OUT, "music.wav")
+    if os.path.exists(music):   # 有配樂（python colab/music.py）就墊在人聲底下，人聲出現時自動壓低
+        inputs += ["-i", music]
+        m = len(files) + 1
+        filt.append(f"{mix}amix=inputs={len(files)}:normalize=0:dropout_transition=0,volume=1.6,asplit=2[v1][v2]")
+        filt.append(f"[{m}:a]volume=0.55[mu];[mu][v2]sidechaincompress=threshold=0.03:ratio=6:attack=80:release=700[duck]")
+        filt.append("[v1][duck]amix=inputs=2:normalize=0:dropout_transition=0,loudnorm=I=-16:TP=-1.5:LRA=11,apad[aout]")
+    else:
+        filt.append(f"{mix}amix=inputs={len(files)}:normalize=0:dropout_transition=0,loudnorm=I=-16:TP=-1.5:LRA=11,apad[aout]")
     out = os.path.join(OUT, "santa.mp4")
     cmd = ["ffmpeg", "-y", "-hide_banner", "-loglevel", "error", "-i", video, *inputs, "-filter_complex", ";".join(filt),
            "-map", "0:v", "-map", "[aout]", "-c:v", "copy", "-c:a", "aac", "-b:a", "192k", "-shortest", "-movflags", "+faststart", out]

@@ -26,14 +26,29 @@
 
 畫面是 Canvas 2D，繪圖主要吃 CPU，靠 `--workers` 平行分段加速；偵測到 NVIDIA GPU 時，影片編碼會自動改用 `h264_nvenc`。
 
-### 配音（選用）
+### 聲音：配樂、音效、配音
 
 ```python
 !pip -q install edge-tts
+!python colab/music.py
 !python colab/tts.py
 ```
 
-依字幕時間合成旁白與台詞，輸出 `out/santa.mp4`。這一步會把字幕文字送到微軟的線上語音服務；不想外送就跳過。
+- `music.py` 用 numpy 合成配樂與音效（撥弦加襯底長音、金幣聲、雪夜風聲），不下載素材，輸出 `out/music.wav`。
+- `tts.py` 依字幕時間合成旁白與台詞，把配樂墊在人聲底下（人聲出現時自動壓低），輸出 `out/santa.mp4`。這一步會把字幕文字送到微軟的線上語音服務；不想外送就不要執行。
+- 聲音是疊在已渲染的 `santa_silent.mp4` 上，改聲音不必重新渲染畫面。
+
+### 用 GPU 加速
+
+把 Colab 執行階段改成 GPU（執行階段 → 變更執行階段類型 → T4 GPU）後：
+
+```python
+!SANTA_GPU=1 node render/render.mjs --fps 24
+```
+
+- 影片編碼偵測到 NVIDIA GPU 就自動用 `h264_nvenc`，不需要任何設定。
+- `SANTA_GPU=1` 另外讓無頭瀏覽器用 GPU 畫 Canvas。這個選項還沒在 Colab 驗證過；畫面異常或變慢就拿掉。
+- 沒有 GPU 時，2 核 CPU 渲染全片約 47 分鐘。
 
 ## 在本機預覽
 
@@ -73,8 +88,8 @@ node render/devserver.mjs
 ## 目前狀態
 
 - 43 段鏡頭都已在瀏覽器逐一檢查過，沒有執行錯誤。
-- `render/render.mjs` 與 Colab 筆記本尚未在 Colab 上實際跑過。
-- 沒有配樂與音效；配音只有 TTS 人聲。
+- 已在 Colab（2 核 CPU、無 GPU）渲染出完整的無聲版：1920×1080、7200 格、300 秒。
+- 配樂是程式合成的簡單編曲，沒有經過人耳試聽調整。
 - 片尾的聖尼古拉斯生平（年份、地名）是依通行說法寫的草稿，尚未對照資料核實。
 - 「因為你的女兒，為了家人願意獨自走那麼遠的路。」這句是補寫的，原劇本此處空白。
 
