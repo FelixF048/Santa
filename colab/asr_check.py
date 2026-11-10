@@ -23,7 +23,11 @@ def main():
     plan = json.load(open(os.path.join(OUT, "voice_plan.json"), encoding="utf-8"))
     video = sys.argv[1] if len(sys.argv) > 1 else os.path.join(OUT, "santa.mp4")
     model = WhisperModel(os.environ.get("ASR_MODEL", "small"), device="cpu", compute_type="int8")
-    segs, _ = model.transcribe(video, language="zh", word_timestamps=True, vad_filter=True, initial_prompt="以下是一段繁體中文的故事旁白與對話。")
+    # 先用 ffmpeg 轉成 16 kHz 單聲道再交給辨識（避開 faster-whisper 內建解碼器的版本相依問題）
+    import subprocess, numpy as np
+    raw = subprocess.run(["ffmpeg", "-v", "error", "-i", video, "-vn", "-ac", "1", "-ar", "16000", "-f", "s16le", "-"], capture_output=True, check=True).stdout
+    audio = np.frombuffer(raw, dtype=np.int16).astype(np.float32) / 32768.0
+    segs, _ = model.transcribe(audio, language="zh", word_timestamps=True, vad_filter=True, initial_prompt="以下是一段繁體中文的故事旁白與對話。")
     words = [(w.start, w.end, w.word) for s in segs for w in (s.words or [])]
     print(f"辨識出 {len(words)} 個字詞")
     bad = 0

@@ -8,6 +8,8 @@
 """
 import asyncio, json, os, re, subprocess, sys
 
+FMT = "aformat=sample_rates=48000:channel_layouts=stereo"   # 統一成 48 kHz 立體聲
+
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUT = os.path.join(ROOT, "out")
 VOICE_DIR = os.path.join(OUT, "voice")
@@ -100,23 +102,24 @@ def main():
         ms = int(start * 1000)
         filt.append(f"[{i + 1}:a]atempo={tempo:.4f},adelay={ms}|{ms}[a{i}]")
     mix = "".join(f"[a{i}]" for i in range(len(files)))
+    total = duration(video)
     music = os.path.join(OUT, "music.wav")
     if not files:
         if not os.path.exists(music):
             sys.exit("沒有任何配音，也沒有 out/music.wav，無法產生有聲版")
         inputs += ["-i", music]
-        filt.append("[1:a]loudnorm=I=-18:TP=-1.5:LRA=11,apad[aout]")
+        filt.append(f"[1:a]loudnorm=I=-18:TP=-1.5:LRA=11,{FMT},apad[aout]")
     elif os.path.exists(music):   # 有配樂（python colab/music.py）就墊在人聲底下，人聲出現時自動壓低
         inputs += ["-i", music]
         m = len(files) + 1
-        filt.append(f"{mix}amix=inputs={len(files)}:normalize=0:dropout_transition=0,volume=1.6,asplit=2[v1][v2]")
-        filt.append(f"[{m}:a]volume=0.55[mu];[mu][v2]sidechaincompress=threshold=0.03:ratio=6:attack=80:release=700[duck]")
-        filt.append("[v1][duck]amix=inputs=2:normalize=0:dropout_transition=0,loudnorm=I=-16:TP=-1.5:LRA=11,apad[aout]")
+        filt.append(f"{mix}amix=inputs={len(files)}:normalize=0:dropout_transition=0,volume=1.6,{FMT},apad=whole_dur={total:.3f},asplit=2[v1][v2]")
+        filt.append(f"[{m}:a]{FMT},volume=0.55[mu];[mu][v2]sidechaincompress=threshold=0.03:ratio=6:attack=80:release=700[duck]")
+        filt.append(f"[v1][duck]amix=inputs=2:normalize=0:dropout_transition=0,loudnorm=I=-16:TP=-1.5:LRA=11,{FMT},apad[aout]")
     else:
-        filt.append(f"{mix}amix=inputs={len(files)}:normalize=0:dropout_transition=0,loudnorm=I=-16:TP=-1.5:LRA=11,apad[aout]")
+        filt.append(f"{mix}amix=inputs={len(files)}:normalize=0:dropout_transition=0,loudnorm=I=-16:TP=-1.5:LRA=11,{FMT},apad[aout]")
     out = os.path.join(OUT, "santa.mp4")
     cmd = ["ffmpeg", "-y", "-hide_banner", "-loglevel", "error", "-i", video, *inputs, "-filter_complex", ";".join(filt),
-           "-map", "0:v", "-map", "[aout]", "-c:v", "copy", "-c:a", "aac", "-b:a", "192k", "-shortest", "-movflags", "+faststart", out]
+           "-map", "0:v", "-map", "[aout]", "-c:v", "copy", "-c:a", "aac", "-b:a", "192k", "-ar", "48000", "-ac", "2", "-shortest", "-movflags", "+faststart", out]
     subprocess.run(cmd, check=True)
     print("完成：", out)
 

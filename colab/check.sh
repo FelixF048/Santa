@@ -12,6 +12,8 @@ ls -l out/check/sheet.jpg
 if ffprobe -v error -select_streams a -show_entries stream=codec_type -of csv=p=0 "$F" | grep -q audio; then
   echo "== 響度（EBU R128）=="
   ffmpeg -hide_banner -nostats -i "$F" -vn -af ebur128=peak=true -f null - 2>&1 | tail -12
+  echo "== 最後 15 秒的音量（片尾應該有配樂）=="
+  ffmpeg -hide_banner -nostats -sseof -15 -i "$F" -vn -af volumedetect -f null - 2>&1 | grep -E "mean_volume|max_volume"
   echo "== 超過 1.5 秒的靜音 =="
   ffmpeg -hide_banner -nostats -i "$F" -vn -af silencedetect=noise=-45dB:d=1.5 -f null - 2>&1 | grep silence_ || echo "沒有"
 fi
