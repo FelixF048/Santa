@@ -18,8 +18,9 @@ VOICES = {
     "sis1":   dict(voice="zh-TW-HsiaoYuNeural",   rate="+0%",  pitch="+18Hz"),
     "mother": dict(voice="zh-TW-HsiaoChenNeural", rate="-4%",  pitch="-22Hz"),
     "woman":  dict(voice="zh-TW-HsiaoYuNeural",   rate="-4%",  pitch="-18Hz"),
-    "father": dict(voice="zh-TW-YunJheNeural",    rate="-8%",  pitch="-14Hz"),
-    "nick":   dict(voice="zh-TW-YunJheNeural",    rate="-4%",  pitch="+6Hz"),
+    # 台灣男聲 zh-TW-YunJheNeural 在 Colab 上拿不到音訊，男性角色改用可用的普通話男聲（口音偏大陸）
+    "father": dict(voice="zh-CN-YunjianNeural",   rate="-8%",  pitch="-6Hz"),
+    "nick":   dict(voice="zh-CN-YunxiNeural",     rate="-6%",  pitch="-8Hz"),
 }
 
 
