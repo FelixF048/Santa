@@ -40,8 +40,22 @@ async def synth(caps):
     for i, c in enumerate(caps):
         v = VOICES.get(c["who"], VOICES["vo"])
         f = os.path.join(VOICE_DIR, f"{i:02d}_{c['who']}.mp3")
-        if not os.path.exists(f):
-            await edge_tts.Communicate(spoken(c["text"]), v["voice"], rate=v["rate"], pitch=v["pitch"]).save(f)
+        if not (os.path.exists(f) and os.path.getsize(f) > 0):
+            ok = False
+            # 先用指定的語速與音高；服務沒回音訊就重試，最後退回預設參數
+            for kw in (dict(rate=v["rate"], pitch=v["pitch"]),) * 2 + (dict(),) * 2:
+                try:
+                    await edge_tts.Communicate(spoken(c["text"]), v["voice"], **kw).save(f)
+                    ok = os.path.getsize(f) > 0
+                except Exception as e:
+                    print(f"  第 {i:02d} 句失敗（{type(e).__name__}），重試")
+                    await asyncio.sleep(2)
+                if ok:
+                    break
+            if not ok:
+                if os.path.exists(f):
+                    os.remove(f)
+                f = None
         files.append(f)
     return files
 
@@ -53,6 +67,11 @@ def main():
         sys.exit("先執行 node render/render.mjs 產生 out/santa_silent.mp4 與 out/captions.json")
     caps = json.load(open(cap_path, encoding="utf-8"))
     files = asyncio.run(synth(caps))
+    missing = [i for i, f in enumerate(files) if f is None]
+    if missing:
+        print(f"有 {len(missing)} 句配音合成失敗：{missing}。這些句子在成品裡沒有人聲（字幕仍在畫面上）。")
+    pairs = [(c, f) for c, f in zip(caps, files) if f]
+    caps, files = [c for c, _ in pairs], [f for _, f in pairs]
 
     print("句  開始   字幕長  語音長  狀態")
     over = 0
@@ -72,7 +91,12 @@ def main():
         filt.append(f"[{i + 1}:a]adelay={ms}|{ms}[a{i}]")
     mix = "".join(f"[a{i}]" for i in range(len(files)))
     music = os.path.join(OUT, "music.wav")
-    if os.path.exists(music):   # 有配樂（python colab/music.py）就墊在人聲底下，人聲出現時自動壓低
+    if not files:
+        if not os.path.exists(music):
+            sys.exit("沒有任何配音，也沒有 out/music.wav，無法產生有聲版")
+        inputs += ["-i", music]
+        filt.append("[1:a]loudnorm=I=-18:TP=-1.5:LRA=11,apad[aout]")
+    elif os.path.exists(music):   # 有配樂（python colab/music.py）就墊在人聲底下，人聲出現時自動壓低
         inputs += ["-i", music]
         m = len(files) + 1
         filt.append(f"{mix}amix=inputs={len(files)}:normalize=0:dropout_transition=0,volume=1.6,asplit=2[v1][v2]")
