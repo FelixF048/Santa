@@ -17,7 +17,7 @@ VOICES = {
     "vo":     dict(voice="zh-TW-HsiaoChenNeural", rate="-6%",  pitch="+0Hz"),
     "sis1":   dict(voice="zh-TW-HsiaoYuNeural",   rate="+0%",  pitch="+18Hz"),
     "mother": dict(voice="zh-TW-HsiaoChenNeural", rate="-4%",  pitch="-22Hz"),
-    "woman":  dict(voice="zh-TW-HsiaoYuNeural",   rate="-4%",  pitch="-18Hz"),
+    "woman":  dict(voice="zh-TW-HsiaoYuNeural",   rate="+8%",  pitch="-18Hz"),
     # 台灣男聲 zh-TW-YunJheNeural 在 Colab 上拿不到音訊，男性角色改用可用的普通話男聲（口音偏大陸）
     "father": dict(voice="zh-CN-YunjianNeural",   rate="-8%",  pitch="-6Hz"),
     "nick":   dict(voice="zh-CN-YunxiNeural",     rate="-6%",  pitch="-8Hz"),
@@ -91,6 +91,8 @@ def main():
         if start + d2 > c["t1"] + 0.05: note.append("超出字幕 %.1f 秒" % (start + d2 - c["t1"]))
         print(f"{i:02d} {c['t0']:8.1f} {start:9.1f} {d2:6.1f}  {tempo:4.2f}  {'、'.join(note) or 'ok'}")
         plan.append((start, tempo)); prev_end = start + d2
+        c["start"], c["dur"], c["tempo"], c["spoken"] = round(start, 2), round(d2, 2), round(tempo, 3), spoken(c["text"])
+    json.dump(caps, open(os.path.join(OUT, "voice_plan.json"), "w", encoding="utf-8"), ensure_ascii=False, indent=1)
 
     inputs, filt = [], []
     for i, (f, (start, tempo)) in enumerate(zip(files, plan)):
