@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>聖尼古拉斯與三姐妹</title>
+<style>
+  html, body { margin: 0; background: #1a120c; overflow: hidden; }
+  #cv { display: block; width: 100vw; height: auto; max-height: 100vh; object-fit: contain; }
+  #bar { display: none; position: fixed; left: 0; right: 0; bottom: 0; gap: 12px; align-items: center; padding: 8px 14px;
+         background: rgba(20, 12, 8, .8); color: #f4ead2; font: 14px/1.2 system-ui, sans-serif; }
+  #rng { flex: 1; }
+  #play { background: #6b4a2e; color: #f4ead2; border: 0; border-radius: 4px; padding: 6px 14px; cursor: pointer; }
+  #lab { min-width: 150px; font-variant-numeric: tabular-nums; }
+</style>
+</head>
+<body>
+<canvas id="cv" width="1920" height="1080"></canvas>
+<div id="bar"><button id="play">播放</button><input id="rng" type="range" min="0" max="300" step="0.05" value="0"><span id="lab"></span></div>
+<script src="lib.js"></script>
+<script src="figures.js"></script>
+<script src="sets.js"></script>
+<script src="shots.js"></script>
+<script src="main.js"></script>
+</body>
+</html>

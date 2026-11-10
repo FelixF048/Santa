@@ -1,0 +1,15 @@
+{
+  "name": "santa-film",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "聖尼古拉斯與三姐妹：以程式碼逐格繪製的 5 分鐘水彩短片",
+  "scripts": {
+    "preview": "node render/devserver.mjs",
+    "render": "node render/render.mjs",
+    "stills": "node render/render.mjs --stills 13,56,136,238,249,281"
+  },
+  "dependencies": {
+    "playwright": "^1.48.0"
+  }
+}
