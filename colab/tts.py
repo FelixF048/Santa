@@ -74,22 +74,29 @@ def main():
     pairs = [(c, f) for c, f in zip(caps, files) if f]
     caps, files = [c for c, _ in pairs], [f for _, f in pairs]
 
-    print("句  開始   字幕長  語音長  狀態")
-    over = 0
+    # 排程：語音比字幕長時先稍微加快（最多 1.12 倍），仍排不下就把後面的句子往後推，確保不重疊
+    GAP, MAXTEMPO = 0.15, 1.12
+    plan, prev_end = [], 0.0
+    print("句  字幕開始  實際開始  語音長  速度  狀態")
     for i, (c, f) in enumerate(zip(caps, files)):
         d, slot = duration(f), c["t1"] - c["t0"]
         nxt = caps[i + 1]["t0"] if i + 1 < len(caps) else 1e9
-        bad = c["t0"] + d > nxt
-        over += bad
-        print(f"{i:02d} {c['t0']:7.1f} {slot:6.1f} {d:6.1f}  {'與下一句重疊' if bad else ('超出字幕 %.1f 秒' % (d - slot) if d > slot else 'ok')}")
-    if over:
-        print(f"\n有 {over} 句語音會和下一句重疊：請縮短該句文字，或調整 film/shots.js 的 CAPS 時間。")
+        start = max(c["t0"], prev_end + GAP)
+        room = nxt - GAP - start
+        tempo = min(MAXTEMPO, max(1.0, d / room)) if room > 0 else MAXTEMPO
+        d2 = d / tempo
+        note = []
+        if start > c["t0"] + 0.01: note.append("延後 %.1f 秒" % (start - c["t0"]))
+        if tempo > 1.001: note.append("加快")
+        if start + d2 > c["t1"] + 0.05: note.append("超出字幕 %.1f 秒" % (start + d2 - c["t1"]))
+        print(f"{i:02d} {c['t0']:8.1f} {start:9.1f} {d2:6.1f}  {tempo:4.2f}  {'、'.join(note) or 'ok'}")
+        plan.append((start, tempo)); prev_end = start + d2
 
     inputs, filt = [], []
-    for i, (c, f) in enumerate(zip(caps, files)):
+    for i, (f, (start, tempo)) in enumerate(zip(files, plan)):
         inputs += ["-i", f]
-        ms = int(c["t0"] * 1000)
-        filt.append(f"[{i + 1}:a]adelay={ms}|{ms}[a{i}]")
+        ms = int(start * 1000)
+        filt.append(f"[{i + 1}:a]atempo={tempo:.4f},adelay={ms}|{ms}[a{i}]")
     mix = "".join(f"[a{i}]" for i in range(len(files)))
     music = os.path.join(OUT, "music.wav")
     if not files:
