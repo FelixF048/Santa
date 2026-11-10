@@ -12,7 +12,15 @@
 
 開啟 [colab/render_colab.ipynb](https://colab.research.google.com/github/FelixF048/Santa/blob/main/colab/render_colab.ipynb)，依序執行每一格。
 
-或在自己的 Colab 筆記本貼上這一格：
+最省事的做法是一鍵流程（安裝、渲染、配樂、配音、驗證一次跑完）：
+
+```python
+!git clone -q https://github.com/FelixF048/Santa.git /content/Santa || git -C /content/Santa pull -q
+%cd /content/Santa
+!bash colab/run_all.sh
+```
+
+只想渲染無聲畫面，貼上這一格：
 
 ```python
 !git clone https://github.com/FelixF048/Santa.git
@@ -38,17 +46,25 @@
 - `tts.py` 依字幕時間合成旁白與台詞，把配樂墊在人聲底下（人聲出現時自動壓低），輸出 `out/santa.mp4`。這一步會把字幕文字送到微軟的線上語音服務；不想外送就不要執行。
 - 聲音是疊在已渲染的 `santa_silent.mp4` 上，改聲音不必重新渲染畫面。
 
-### 用 GPU 加速
+### 執行階段怎麼選
 
-把 Colab 執行階段改成 GPU（執行階段 → 變更執行階段類型 → T4 GPU）後：
+實測（Colab，2026-11-10）：
+
+| 執行階段 | 全片渲染 | 說明 |
+|---|---|---|
+| CPU、2 核 | 2819 秒（約 47 分鐘） | 2 個平行分段，CPU 編碼 |
+| T4 GPU + 大量 RAM、8 核 | 288 秒（約 5 分鐘） | 7 個平行分段，GPU 編碼（`h264_nvenc`） |
+
+- 速度主要來自 CPU 核心數：畫面是 Canvas 2D，每個平行分段吃一個核心。選「大量 RAM」才會有 8 核。
+- GPU 只用在影片編碼，偵測到就自動啟用。
+- `SANTA_GPU=1` 會讓無頭瀏覽器改用 GPU 畫 Canvas。實測在 T4 上反而比較慢（3 秒片段：CPU 繪圖 20.0 秒、GPU 繪圖 33.1 秒，畫面一致，PSNR 46 dB），所以預設不開。`run_all.sh` 每次會自動測一次，比較快才採用。
+
+### 驗證
 
 ```python
-!SANTA_GPU=1 node render/render.mjs --fps 24
+!bash colab/check.sh            # 規格、畫面抽格（out/check/sheet.jpg）、響度、靜音偵測
+!python colab/asr_check.py      # 用語音辨識檢查每一句配音在成品裡聽不聽得出來（本機辨識，不外送）
 ```
-
-- 影片編碼偵測到 NVIDIA GPU 就自動用 `h264_nvenc`，不需要任何設定。
-- `SANTA_GPU=1` 另外讓無頭瀏覽器用 GPU 畫 Canvas。這個選項還沒在 Colab 驗證過；畫面異常或變慢就拿掉。
-- 沒有 GPU 時，2 核 CPU 渲染全片約 47 分鐘。
 
 ## 在本機預覽
 
@@ -88,8 +104,10 @@ node render/devserver.mjs
 ## 目前狀態
 
 - 43 段鏡頭都已在瀏覽器逐一檢查過，沒有執行錯誤。
-- 已在 Colab（2 核 CPU、無 GPU）渲染出完整的無聲版：1920×1080、7200 格、300 秒。
-- 配樂是程式合成的簡單編曲，沒有經過人耳試聽調整。
+- 已在 Colab 渲染出完整成品：1920×1080、7200 格、300 秒，音訊 48 kHz 立體聲。
+- 成品已通過的檢查：整體響度 −16.7 LUFS、真峰值 −1.4 dBFS、沒有超過 1.5 秒的靜音、28 句配音都能被語音辨識認出且落在預期時間。
+- 配樂是程式合成的簡單編曲，沒有經過人耳試聽調整；語音辨識只能證明聽得出內容，不能證明語氣自然。
+- 父親與尼古拉斯用的是普通話男聲（台灣男聲在 Colab 上拿不到音訊），口音與旁白不同。
 - 片尾的聖尼古拉斯生平（年份、地名）是依通行說法寫的草稿，尚未對照資料核實。
 - 「因為你的女兒，為了家人願意獨自走那麼遠的路。」這句是補寫的，原劇本此處空白。
 
