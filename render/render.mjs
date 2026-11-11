@@ -5,8 +5,12 @@
 //   node render/render.mjs --from 228 --to 252     只渲染一段（秒）
 //   node render/render.mjs --stills 13,56,238,281  只輸出單格 JPEG 到 out/stills/
 //
+//   node render/render.mjs --ss 1                  內部超取樣倍數（預設 2；沒有 GPU 時用 1 比較快）
+//
 // 需要：Node 18+、ffmpeg、`npm install`、`npx playwright install chromium`。
-// 畫面是 Canvas 2D，主要吃 CPU；有 NVIDIA GPU 時編碼會自動改用 h264_nvenc。
+// 畫面是 WebGL2（厚塗引擎）。環境變數 SANTA_GL 決定無頭瀏覽器用什麼繪圖：
+//   egl / vulkan = 顯示卡（Colab 的 T4）；swiftshader = 純 CPU 的軟體繪圖（預設，很慢）；native = 交給瀏覽器自己決定（本機有顯示卡時）。
+// 有 NVIDIA GPU 時編碼會自動改用 h264_nvenc。
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -25,6 +29,7 @@ const [VW, VH] = arg('size', '1920x1080').split('x').map(Number);
 const QUALITY = parseFloat(arg('jpeg', '0.92'));
 const OUTFILE = path.resolve(arg('out', path.join(OUT, 'santa_silent.mp4')));
 const STILLS = arg('stills', null);
+const SS = arg('ss', '2');
 const FFMPEG = process.env.FFMPEG || 'ffmpeg';
 
 const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css' };
@@ -47,7 +52,7 @@ function pickEncoder() {
 async function openPage(browser, base) {
   const page = await browser.newPage({ viewport: { width: VW, height: VH }, deviceScaleFactor: 1 });
   page.on('pageerror', e => { console.error('page error:', e.message); process.exit(1); });
-  await page.goto(base + '/index.html?bare');
+  await page.goto(base + '/index.html?bare&ss=' + SS);
   await page.waitForFunction('window.READY === true', null, { timeout: 180000 });
   return page;
 }
@@ -56,13 +61,20 @@ const grab = (page, t) => page.evaluate(([t, q]) => { window.render(t); return d
 
 const srv = await serve();
 const base = `http://127.0.0.1:${srv.address().port}`;
-const gpuArgs = process.env.SANTA_GPU === '1' ? ['--ignore-gpu-blocklist', '--enable-gpu-rasterization', '--use-gl=angle', '--use-angle=gl-egl'] : [];
-const browser = await chromium.launch({ args: ['--no-sandbox', '--font-render-hinting=none', ...gpuArgs] });
+const GLMODE = process.env.SANTA_GL || (process.env.SANTA_GPU === '1' ? 'egl' : 'swiftshader');
+const glArgs = ({
+  egl: ['--use-gl=angle', '--use-angle=gl-egl', '--ignore-gpu-blocklist', '--enable-gpu'],
+  vulkan: ['--use-gl=angle', '--use-angle=vulkan', '--enable-features=Vulkan', '--ignore-gpu-blocklist', '--enable-gpu'],
+  swiftshader: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'],
+  native: ['--ignore-gpu-blocklist', '--enable-gpu'],
+})[GLMODE] || [];
+const browser = await chromium.launch({ args: ['--no-sandbox', '--font-render-hinting=none', ...glArgs] });
 fs.mkdirSync(OUT, { recursive: true });
 
 try {
   const page0 = await openPage(browser, base);
   const DUR = await page0.evaluate('window.DUR');
+  console.log(`renderer: ${await page0.evaluate('window.GLINFO')}  (SANTA_GL=${GLMODE}, ss=${SS})`);
   fs.writeFileSync(path.join(OUT, 'captions.json'), JSON.stringify(await page0.evaluate('window.CAPS'), null, 1));
   fs.writeFileSync(path.join(OUT, 'shots.json'), JSON.stringify(await page0.evaluate('window.SHOTS_INFO()'), null, 1));
 

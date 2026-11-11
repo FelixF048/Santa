@@ -1,16 +1,15 @@
 'use strict';
-// 場景：每個場景畫成幾層快取圖（世界座標 2560×1440），鏡頭在上面移動，不同層有視差。
-// 都用「白天的固有色」畫，夜晚與火光由 main.js 的光照圖相乘出來。
+// 場景：每個場景畫成幾層參考圖（世界座標 2560×1440），main.js 再把每一層轉成刀筆筆觸；鏡頭在上面移動，不同層有視差。
+// 都用「白天的固有色」畫，夜晚與火光由引擎的逐筆光照算出來。Lr()、wash、pen、glow 在 lib.js。
 let R_ = mulberry(1);
-function Lr() { const c = mk(WW, WH); return [c, c.getContext('2d')]; }
 function wb(x, pts, col, o = {}) { wash(x, seg(pts, true, o.step || 90, o.j ?? 2.5, R_), col, o); }
 function ws(x, pts, col, o = {}) { wash(x, pts, col, Object.assign({ smooth: true }, o)); }
 function ln(x, a, b, o = {}) { pen(x, seg([a, b], false, o.step || 70, o.j ?? 2, R_), o); }
 function ribbon(c, w0, w1) { const n = c.length, top = [], bot = []; for (let i = 0; i < n; i++) { const hw = lerp(w0, w1, i / (n - 1)); top.push([c[i][0], c[i][1] - hw]); bot.unshift([c[i][0], c[i][1] + hw]); } return top.concat(bot); }
-function grain(x) { x.save(); x.globalCompositeOperation = 'multiply'; x.globalAlpha = .5; x.fillStyle = x.createPattern(TEX.gran, 'repeat'); x.fillRect(0, 0, WW, WH); x.restore(); }
+function grain() { }
 function skyWash(x, top, bot, mid) {
-  const g = x.createLinearGradient(0, 0, 0, WH * .78); g.addColorStop(0, top); if (mid) g.addColorStop(.62, mid); g.addColorStop(1, bot);
-  x.fillStyle = g; x.fillRect(0, 0, WW, WH);
+  x.ref.fill(c => c.rect(0, 0, WW, WH), c => { const g = c.createLinearGradient(0, 0, 0, WH * .78); g.addColorStop(0, top); if (mid) g.addColorStop(.62, mid); g.addColorStop(1, bot); return g; },
+    { dir: -10, maxR: 32, aj: .55, jit: .08, bleed: true });
   for (let i = 0; i < 26; i++) glow(x, R_() * WW, R_() * WH * .7, 140 + R_() * 320, R_() < .5 ? light(top, .5) : bot, .1 + R_() * .12, 'source-over');
   grain(x);
 }
@@ -112,8 +111,12 @@ SETS.houseExt = v => {
   emis.push({ id: 'win', c, p: 1 });
   if (v.sky === 'night') {
     [c, x] = Lr();
-    for (let i = 0; i < 150; i++) { const sx = R_() * WW, sy = R_() * 700, r = .8 + R_() * 1.8; x.fillStyle = rgba('#FFF6DC', .45 + R_() * .5); x.beginPath(); x.arc(sx, sy, r, 0, 7); x.fill(); }
-    if (!snow) { glow(x, 520, 300, 230, '#E6EAFF', .55, 'source-over'); x.fillStyle = '#F6F2E2'; x.beginPath(); x.arc(520, 300, 44, 0, 7); x.fill(); x.fillStyle = 'rgba(190,196,216,.55)'; for (const [mx, my, mr] of [[506, 290, 11], [532, 312, 8], [528, 284, 6]]) { x.beginPath(); x.arc(mx, my, mr, 0, 7); x.fill(); } }
+    for (let i = 0; i < 150; i++) { const sx = R_() * WW, sy = R_() * 700, r = .8 + R_() * 1.8; dot(x, sx, sy, r, '#FFF6DC', .45 + R_() * .5); }
+    if (!snow) {   // 月亮：兩圈月暈、月面、三個淺坑
+      ws(x, ell(520, 300, 200, 200, 22), '#C6D0F4', { a: .08, alpha: .08, maxR: 22 }); ws(x, ell(520, 300, 112, 112, 20), '#DCE4FC', { a: .14, alpha: .14, maxR: 16 });
+      ws(x, ell(520, 300, 44, 44, 18), '#F6F2E2', { maxR: 11 });
+      for (const [mx, my, mr] of [[506, 290, 11], [532, 312, 8], [528, 284, 6]]) ws(x, ell(mx, my, mr, mr, 10), '#CDD2E2', { maxR: 4 });
+    }
     emis.push({ id: 'sky', c, p: .15, sky: true });
   }
   return { layers, emis, A: { FAR, NEAR, door: [1381, 1016], win: [1612, 874], bench: [1790, 1012], chim: [1621, 440] } };
@@ -198,8 +201,8 @@ SETS.bedroom = () => {
   layers.push({ c, p: 1.25, front: true });
   [c, x] = Lr();
   wb(x, box(1052, 472, 196, 216), '#C9D6F4', { g: '#A8B8E0', pen: 0, edge: 0, j: 1 });
-  x.save(); x.globalAlpha = .3; const g = x.createLinearGradient(1150, 690, 1500, 1200); g.addColorStop(0, 'rgba(200,214,250,.9)'); g.addColorStop(1, 'rgba(200,214,250,0)'); x.fillStyle = g;
-  x.beginPath(); x.moveTo(1052, 688); x.lineTo(1248, 688); x.lineTo(1760, 1300); x.lineTo(1200, 1300); x.closePath(); x.fill(); x.restore();
+  wash(x, [[1052, 688], [1248, 688], [1520, 1010], [1130, 1010]], '#C8D6FA', { a: .11, alpha: .11, dir: 52, maxR: 24 });   // 月光斜斜照進來
+  wash(x, [[1130, 1010], [1520, 1010], [1760, 1300], [1200, 1300]], '#C8D6FA', { a: .05, alpha: .05, dir: 52, maxR: 26 });
   emis.push({ id: 'moon', c, p: 1 });
   return { layers, emis, A: { win: [1150, 580], lamp: [1378, 930] } };
 };
@@ -249,7 +252,7 @@ SETS.chimneyUp = () => {
   layers.push({ c, p: 1 });
   [c, x] = Lr();
   wb(x, box(1132, 572, 296, 296), '#3A4672', { g: '#2A3258', pen: 0, edge: 0, j: 1 });
-  for (let i = 0; i < 16; i++) { x.fillStyle = rgba('#FFF6DC', .5 + R_() * .5); x.beginPath(); x.arc(1150 + R_() * 260, 590 + R_() * 260, 1 + R_() * 1.6, 0, 7); x.fill(); }
+  for (let i = 0; i < 16; i++) { const a = .5 + R_() * .5; dot(x, 1150 + R_() * 260, 590 + R_() * 260, 1.6 + R_() * 2.2, '#FFF6DC', a); }
   emis.push({ id: 'sky', c, p: 1 });
   return { layers, emis, A: { sky: [1280, 720] } };
 };
@@ -405,7 +408,8 @@ SETS.gate = () => {
   wb(x, box(1560, 1030, 34, 60), '#A89A86', { j: 1.5, step: 40 });
   layers.push({ c, p: 1 });
   [c, x] = Lr();
-  glow(x, 1980, 560, 520, '#FFF2D0', .8, 'source-over'); glow(x, 1980, 560, 150, '#FFFFFF', .9, 'source-over');
+  ws(x, ell(1980, 560, 460, 460, 26), '#FFF2D0', { a: .12, alpha: .12, maxR: 30 }); ws(x, ell(1980, 560, 290, 290, 24), '#FFF2D0', { a: .2, alpha: .2, maxR: 26 });   // 太陽：兩圈光暈加日面
+  ws(x, ell(1980, 560, 130, 130, 22), '#FFFBEA', { maxR: 20 });
   emis.push({ id: 'sun', c, p: .15, sky: true });
   return { layers, emis, A: { RD, gate: [720, 1036] } };
 };
@@ -436,7 +440,7 @@ SETS.map = () => {
   R_ = mulberry(1212);
   const layers = [];
   const [c, x] = Lr();
-  x.fillStyle = '#E9DCC0'; x.fillRect(0, 0, WW, WH);
+  wb(x, box(0, 0, WW, WH), '#E8D6B0', { maxR: 34, dir: 8, j: 0 });
   for (let i = 0; i < 60; i++) glow(x, R_() * WW, R_() * WH, 100 + R_() * 320, R_() < .6 ? '#D8C49C' : '#F4EAD2', .14 + R_() * .14, 'source-over');
   grain(x);
   pen(x, seg(box(70, 70, WW - 140, WH - 140), true, 160, 2, R_), { close: true, w: 3, a: .7 });

@@ -1,5 +1,7 @@
 'use strict';
 // 時間軸：41 鏡（04-2 因插入枯田閃回拆成 a/b/c）與字幕。時間碼對應 docs/storyboard.md。
+// 每一鏡：cam 鏡頭起訖 [x, y, 縮放]、amb 環境色、lights 光源、emis 自發光層、fig 人物、pre/post 特效筆觸、ov/ui 疊層；
+// xf = 用幾秒把這一鏡「刷」到上一鏡上面（厚塗不用溶接）。
 const DUR = 300;
 const FH = 420;      // 室內人物高度（世界座標）
 const EH = 150;      // 站在房子旁的人物高度
@@ -9,67 +11,75 @@ const WARM = '#FFC27A', FIRE = '#FFB060', MOON = '#AEBEF0', GOLD = '#FFD870';
 const FONT = '"Noto Serif CJK TC","Noto Serif TC","Source Han Serif TC","Songti TC","PMingLiU","Microsoft JhengHei",serif';
 
 // ---------- 特效
+// 每個鏡頭的 pre / post 把筆觸推進三個清單：K.lit（世界座標、受光）、K.em（世界座標、自發光）、K.scr（畫面座標）。
+// 文字與柔光這類不屬於顏料的東西放在 ui / ov，畫在 2D 疊層上（K.c）。
 function fxSmoke(K, x0, y0, n = 9, a = .34) {
-  const c = K.c;
   for (let k = 0; k < n; k++) {
-    const age = (K.t * .16 + k / n) % 1, px = x0 + age * age * 170 + Math.sin(age * 6 + k) * 12, py = y0 - age * 300;
-    c.save(); c.globalAlpha = (1 - age) * a * Math.min(1, age * 6); c.fillStyle = '#E8E0D8'; c.beginPath(); c.arc(px, py, 14 + age * 74, 0, 7); c.fill(); c.restore();
+    const age = (K.t * .16 + k / n) % 1, px = x0 + age * age * 170 + Math.sin(age * 6 + k) * 12, py = y0 - age * 300, r = 14 + age * 74;
+    db(K.lit, px, py, r * 2.1, r * 1.7, '#E8E0D8', '#CFC6BE', { seed: 300 + k, type: BRUSH, ang: -.5, alpha: Math.min(.6, (1 - age) * a * Math.min(1, age * 6) * 1.6), hgt: .7 });
   }
 }
-function fxSnow(K, n = 240, a = .85) {
-  const c = K.c; c.save(); c.setTransform(1, 0, 0, 1, 0, 0); c.fillStyle = '#FFFFFF';
+function fxSnow(K, n = 240, a = .85) {   // 雪：畫面座標的小圓筆
   for (let i = 0; i < n; i++) {
     const dz = .4 + hash1(i * 3.1), x0 = hash1(i * 7.7) * W * 1.3, y0 = hash1(i * 5.3) * H;
     const y = ((y0 + K.t * (60 + dz * 90)) % (H + 40)) - 20;
     let x = (x0 + Math.sin(K.t * .7 + i) * 24 * dz - K.cam.x * dz * .6 * K.cam.z) % (W + 40); if (x < 0) x += W + 40;
-    c.globalAlpha = a * (.35 + dz * .45); c.beginPath(); c.arc(x - 20, y, 1.2 + dz * 2.4, 0, 7); c.fill();
+    const r = 1.8 + dz * 3.4;
+    db(K.scr, x - 20, y, r * 2.1, r * 1.7, [.84, .89, 1], [1, 1, 1], { seed: i + 1, type: BRUSH, ang: 1.2 + hash1(i) * .7, alpha: a * (.45 + dz * .45) });
   }
-  c.restore();
 }
-function fxHaze(K, x, y, r, col, a) { glow(K.c, x, y, r, col, a); }
-function doorOpen(K, a) { const c = K.c; c.save(); c.fillStyle = rgba('#F8CC70', a); c.fillRect(1337, 852, 88, 164); c.restore(); }
+function fxHaze(K, x, y, r, col, a) { const c = K.c; c.save(); c.globalCompositeOperation = 'screen'; c.fillStyle = radial(c, x, y, r, col, a); c.fillRect(x - r, y - r, r * 2, r * 2); c.restore(); }   // 陽光的薄霧（疊層）
+function doorOpen(K, a) {   // 開著的門：金色的光，加上落在地上的一疊疊短橫刀
+  const S = K.em, rnd = mulberry(12);
+  for (let i = 0; i < 5; i++) { const x = 1346 + i * 17.5; kn(S, x, 856, x + (rnd() - .5) * 4, 1014, 19, i === 2 ? '#FFF0B4' : '#FFD772', i === 0 || i === 4 ? '#EE9238' : '#FFD772', { seed: 400 + i, hgt: 1.5, over: 1, alpha: a }); }
+  for (let i = 0; i < 9; i++) {
+    const k = i / 8, y = 1026 + i * 14 + rnd() * 6, sp = 26 + i * 12;
+    for (let j = 0; j < (i < 3 ? 1 : 2); j++) { const x = 1381 + (rnd() - .5) * 2 * sp * .75, len = 46 + rnd() * 60 + i * 4; kn(S, x - len / 2, y, x + len / 2, y + (rnd() - .5) * 3, 9 + rnd() * 6, mixc('#FFF0B4', '#EE9238', clamp(k * 1.3)), mixc('#FFD772', '#C9703A', k), { seed: 410 + i * 2 + j, hgt: 1.3, alpha: a * lerp(.45, .08, k), over: 1 }); }
+  }
+}
 function winSil(K) {   // 窗內的人影
-  const c = K.c; c.save(); c.fillStyle = '#4A2E1A';
-  for (const [dx, r, ph] of [[-22, 9, 0], [4, 8, 2], [26, 7, 4]]) { const bx = 1612 + dx + Math.sin(K.t * .9 + ph) * 2, by = 884 + Math.sin(K.t * 1.7 + ph) * 1.5; c.beginPath(); c.arc(bx, by, r, 0, 7); c.fill(); c.fillRect(bx - r * 1.2, by + r * .8, r * 2.4, 30); }
-  c.restore();
+  for (const [dx, r, ph] of [[-22, 9, 0], [4, 8, 2], [26, 7, 4]]) {
+    const bx = 1612 + dx + Math.sin(K.t * .9 + ph) * 2, by = 880 + Math.sin(K.t * 1.7 + ph) * 1.5;
+    kn(K.em, bx, by + r * .6, bx, by + r * .6 + 26, r * 2.4, '#4A2E1A', '#3A2214', { seed: 450 + ph, over: 1, taper: .2 }); db(K.em, bx, by, r * 2.2, r * 2.2, '#4A2E1A', '#3A2214', { seed: 451 + ph, type: BRUSH });
+  }
 }
-function coinBag(c, x, y, s, t, seed) {
-  wash(c, [[x - 16 * s, y], [x - 20 * s, y - 20 * s], [x - 8 * s, y - 34 * s], [x - 11 * s, y - 42 * s], [x + 11 * s, y - 42 * s], [x + 8 * s, y - 34 * s], [x + 20 * s, y - 20 * s], [x + 16 * s, y]], '#D8AE4A', { fast: true, smooth: true, edge: .25, pen: .7, pw: 1.3 });
-  c.save(); c.globalCompositeOperation = 'screen';
-  const k = .5 + .5 * Math.sin(t * 5 + seed * 3), r = (10 + 12 * k) * s;
-  c.strokeStyle = rgba('#FFF2B0', .5 + .4 * k); c.lineWidth = 2 * s; c.beginPath();
-  c.moveTo(x - r, y - 30 * s); c.lineTo(x + r, y - 30 * s); c.moveTo(x, y - 30 * s - r); c.lineTo(x, y - 30 * s + r); c.stroke(); c.restore();
+function coinBag(S, x, y, s, t, seed, al = 1) {
+  const k = .5 + .5 * Math.sin(t * 5 + seed * 3), r = (22 + 18 * k) * s;
+  for (let i = 0; i < 4; i++) { const a = i * Math.PI / 2 + .2; kn(S, x + Math.cos(a) * r, y - 20 * s + Math.sin(a) * r, x, y - 20 * s, (i % 2 ? 6 : 8) * s, '#FFF6CC', '#FFD772', { seed: 500 + seed * 10 + i, taper: .92, hgt: 1.5, alpha: al * (.6 + .4 * k), over: 1 }); }
+  kn(S, x, y - 40 * s, x, y, 34 * s, '#E2B040', '#B8842A', { seed: 505 + seed * 10, taper: .4, hgt: 1.6, over: 1, alpha: al });
+  kn(S, x - 8 * s, y - 32 * s, x - 6 * s, y - 8 * s, 8 * s, '#FFF0B4', '#FFD772', { seed: 506 + seed * 10, hgt: 1.7, over: 1, alpha: al });
+  kn(S, x - 9 * s, y - 41 * s, x + 9 * s, y - 41 * s, 7 * s, '#8A5E1C', '#B8842A', { seed: 507 + seed * 10, over: 1, alpha: al });
 }
 function coinBags(K, g, o = {}) {   // g：金光出現的程度；o.fall：新的一袋從煙囪落下的進度
-  if (g <= 0) return; const c = K.c, A = K.A;
-  c.save(); c.globalAlpha = Math.min(1, g * 1.4);
-  A.boots.forEach((bx, i) => coinBag(c, bx, A.bootY + 6, .95, K.t, i));
-  for (const [fx, fy, i] of [[1905, 1004, 5], [1962, 1010, 6], [1880, 1014, 7]]) coinBag(c, fx, fy, 1.1, K.t, i);
-  for (const [cx, cy] of [[1930, 1014], [1946, 1006], [1990, 1016], [1858, 1010]]) { c.fillStyle = '#F6D060'; c.beginPath(); c.ellipse(cx, cy, 9, 4, 0, 0, 7); c.fill(); }
-  if (o.fall != null && o.fall > 0) { const k = clamp(o.fall), y = k < .75 ? lerp(700, 985, Math.pow(k / .75, 2)) : 985 - Math.sin((k - .75) / .25 * Math.PI) * 26; coinBag(c, 1690, y, 1.1, K.t, 9); if (k > .75) glow(c, 1690, 960, 220 * (1 - (k - .75) * 3), '#FFE890', .7); }
-  c.restore();
+  if (g <= 0) return; const S = K.em, A = K.A, al = Math.min(1, g * 1.4);
+  A.boots.forEach((bx, i) => coinBag(S, bx, A.bootY + 6, .95, K.t, i, al));
+  for (const [fx, fy, i] of [[1905, 1004, 5], [1962, 1010, 6], [1880, 1014, 7]]) coinBag(S, fx, fy, 1.1, K.t, i, al);
+  [[1930, 1014], [1946, 1006], [1990, 1016], [1858, 1010]].forEach(([cx, cy], i) => db(S, cx, cy, 20, 9, '#F6D060', '#FFF0B4', { seed: 590 + i, alpha: al, hgt: 1.4, type: BRUSH }));
+  if (o.fall != null && o.fall > 0) {
+    const k = clamp(o.fall), y = k < .75 ? lerp(700, 985, Math.pow(k / .75, 2)) : 985 - Math.sin((k - .75) / .25 * Math.PI) * 26; coinBag(S, 1690, y, 1.1, K.t, 9, al);
+    if (k > .75) { const q = (k - .75) * 4; for (let i = 0; i < 10; i++) { const an = i * .628 + .3, r0 = 30 + q * 60, r1 = 70 + q * 150; kn(S, 1690 + Math.cos(an) * r1, 960 + Math.sin(an) * r1 * .6, 1690 + Math.cos(an) * r0, 960 + Math.sin(an) * r0 * .6, 9, '#FFF6CC', '#FFE890', { seed: 595 + i, taper: .8, alpha: al * (1 - q) * .9, hgt: 1.5, over: 1 }); } }
+  }
 }
+function dashLine(S, pts, end, o = {}) {   // 沿折線畫虛線到 end（0..1）
+  const tot = pathLen(pts), on = o.on || 16, gap = o.gap || 13;
+  for (let d0 = 0, i = 0; d0 < tot * end; d0 += on + gap, i++) { const a = along(pts, d0 / tot), b = along(pts, Math.min(tot * end, d0 + on) / tot); kn(S, a[0], a[1], b[0], b[1], o.w || 6, o.c || '#5A3A22', o.c2 || '#3A2418', { seed: (o.seed || 600) + i, alpha: o.alpha ?? .85, over: 1.05, type: BRUSH }); }
+}
+function mapPin(S, q, col, seed, s = 1) { kn(S, q[0], q[1] - 24 * s, q[0], q[1] + 5 * s, 24 * s, col, dark(col, .25), { taper: .85, seed, over: 1, hgt: 1.3 }); db(S, q[0], q[1] - 30 * s, 19 * s, 19 * s, col, light(col, .2), { seed: seed + 1, type: BRUSH, hgt: 1.3 }); }
 function mapRoute(K, p, o = {}) {
-  const c = K.c, RT = K.A.RT, n = 120;
-  c.save(); c.strokeStyle = '#5A3A22'; c.lineWidth = 4; c.setLineDash([16, 13]); c.lineCap = 'round'; c.globalAlpha = .85;
-  const end = o.full ? 1 : p; c.beginPath();
-  for (let i = 0; i <= n; i++) { const u = i / n * end, q = along(RT, u); i ? c.lineTo(q[0], q[1]) : c.moveTo(q[0], q[1]); }
-  c.stroke(); c.setLineDash([]);
-  const mark = (u, col) => { const q = along(RT, u); c.globalAlpha = 1; c.fillStyle = col; c.beginPath(); c.moveTo(q[0] - 11, q[1] + 4); c.lineTo(q[0], q[1] - 22); c.lineTo(q[0] + 11, q[1] + 4); c.closePath(); c.fill(); c.beginPath(); c.arc(q[0], q[1] - 28, 8, 0, 7); c.fill(); c.strokeStyle = INK; c.lineWidth = 1.4; c.stroke(); };
-  if (o.follower) mark(clamp(p + .1), '#7F7D82');
-  mark(p, '#9A6B3F');
-  c.restore();
+  const RT = K.A.RT;
+  dashLine(K.lit, RT, o.full ? 1 : p);
+  if (o.follower) mapPin(K.lit, along(RT, clamp(p + .1)), '#7F7D82', 690);
+  mapPin(K.lit, along(RT, p), '#9A6B3F', 695);
 }
 function fxDayNight(K, u) {   // 地圖上方日月交替三次
-  const c = K.c, ph = (u * 6) % 1, sun = Math.floor(u * 6) % 2 === 0, x = lerp(880, 1680, ph), y = 300 - Math.sin(ph * Math.PI) * 110, a = Math.sin(ph * Math.PI);
-  c.save(); c.globalAlpha = a * .9; c.strokeStyle = INK; c.lineWidth = 2;
-  if (sun) { c.fillStyle = '#E0A848'; c.beginPath(); c.arc(x, y, 26, 0, 7); c.fill(); c.stroke(); for (let k = 0; k < 10; k++) { const an = k * Math.PI / 5; c.beginPath(); c.moveTo(x + Math.cos(an) * 34, y + Math.sin(an) * 34); c.lineTo(x + Math.cos(an) * 48, y + Math.sin(an) * 48); c.stroke(); } }
-  else { c.fillStyle = '#B8C0D8'; c.beginPath(); c.arc(x, y, 26, .6, 5.1); c.quadraticCurveTo(x + 2, y, x + Math.cos(.6) * 26, y + Math.sin(.6) * 26); c.fill(); c.stroke(); }
-  c.restore();
+  const S = K.lit, ph = (u * 6) % 1, sun = Math.floor(u * 6) % 2 === 0, x = lerp(880, 1680, ph), y = 300 - Math.sin(ph * Math.PI) * 110, a = Math.sin(ph * Math.PI) * .95;
+  if (a <= .02) return;
+  if (sun) { for (let k = 0; k < 10; k++) { const an = k * Math.PI / 5; kn(S, x + Math.cos(an) * 34, y + Math.sin(an) * 34, x + Math.cos(an) * 52, y + Math.sin(an) * 52, 6, '#C88A30', '#E0A848', { seed: 650 + k, alpha: a, over: 1, type: BRUSH }); } db(S, x, y, 56, 56, '#E0A848', '#F2C868', { seed: 661, alpha: a, hgt: .8 }); }
+  else { db(S, x, y, 56, 56, '#B8C0D8', '#D6DCEC', { seed: 662, alpha: a, hgt: .8 }); db(S, x + 15, y - 7, 46, 46, '#E8D6B0', '#E2D0A8', { seed: 663, alpha: a, hgt: .8 }); }
 }
 function titleCard(c, text, a) {
-  if (a <= 0) return; c.save(); c.globalAlpha = a; c.textAlign = 'center'; c.textBaseline = 'middle';
-  c.font = `700 120px ${FONT}`; c.fillStyle = INK; c.fillText(text, W / 2, H * .4); c.restore();
+  if (a <= 0) return; c.save(); c.globalAlpha = a; c.textAlign = 'center'; c.textBaseline = 'middle'; c.lineJoin = 'round';
+  c.font = `700 120px ${FONT}`; c.strokeStyle = 'rgba(244,234,210,.75)'; c.lineWidth = 10; c.strokeText(text, W / 2, H * .4); c.fillStyle = INK; c.fillText(text, W / 2, H * .4); c.restore();
 }
 const EPI = ['聖尼古拉斯（約 270–343 年），生於小亞細亞，後任米拉城主教。', '他一生暗中濟助窮人，從不留名。', '他的故事流傳千年，成為今日的「聖誕老人」。'];
 function epilogue(c, lt) {
@@ -90,7 +100,7 @@ const dinner = (t, o = {}) => { const q = o.q ?? 1; return [
   o.noM ? null : { who: 'mother', x: 1680, y: 1062, h: FH, pose: 'sit', face: -1, head: .22, armA: .7, bendA: .8 },
 ]; };
 const lampL = () => [{ x: 1290, y: 860, r: 900, c: WARM, a: 1, fl: 1, glow: .5 }];
-const lampFlame = K => flame(K.c, 1290, 874, 15, K.t, 2);
+const lampFlame = K => flame(K, 1290, 874, 15, K.t, 2);
 function crowd(t, n, ax, ay) {
   const out = [];
   for (let i = 0; i < n; i++) {
@@ -102,7 +112,8 @@ function crowd(t, n, ax, ay) {
   return out;
 }
 const fireL = (lvl = 1) => [{ x: 1720, y: 940, r: 1300 * lerp(.3, 1, lvl), c: FIRE, a: lerp(.25, 1, lvl), fl: 1, glow: .4 * lvl }];
-const fireFlames = (K, lvl = 1) => { for (const [fx, s, sd] of [[1660, 70, 1], [1720, 96, 2], [1785, 74, 3]]) flame(K.c, fx, 996, s, K.t, sd, lvl); if (lvl < .5) glow(K.c, 1720, 990, 150, '#FF7030', .5); };
+const fireFlames = (K, lvl = 1) => { for (const [fx, s, sd] of [[1660, 70, 1], [1720, 96, 2], [1785, 74, 3]]) flame(K, fx, 996, s, K.t, sd, lvl);
+  if (lvl < .5) for (let i = 0; i < 5; i++) db(K.em, 1650 + i * 34, 992 + (i % 2) * 6, 44, 15, '#E0501E', '#FF8A40', { seed: 720 + i, type: BRUSH, alpha: .55 + .2 * Math.sin(K.t * 3 + i), hgt: 1.2 }); };   // 餘燼
 const nightExt = { amb: '#474878' };
 const winL = (a = .75, c = WARM) => [{ x: 1612, y: 880, r: 300, c, a, fl: .6, glow: .5 }];
 const hug = (t, o = {}) => [
@@ -123,7 +134,7 @@ S('01-1', 8, 16, 'houseExt', { sky: 'dusk' }, [[1280, 740, 1.0], [1500, 790, 1.5
   lights: () => [{ x: 1612, y: 880, r: 330, c: WARM, a: .6, fl: 1, glow: .5 }, { x: 420, y: 860, r: 1000, c: '#FFD8A0', a: .35 }],
   pre: K => fxSmoke(K, 1621, 438) });
 const kitL = () => [{ x: 615, y: 900, r: 1600, c: FIRE, a: .95, fl: 1, glow: .45 }, { x: 2235, y: 575, r: 520, c: '#FFC090', a: .4 }];
-S('01-2', 16, 24, 'kitchen', {}, [[1050, 770, 1.4], [1520, 770, 1.4]], { amb: '#8C7060', emis: { win: .6 }, lights: kitL, post: K => flame(K.c, 615, 972, 72, K.t, 1),
+S('01-2', 16, 24, 'kitchen', {}, [[1050, 770, 1.4], [1520, 770, 1.4]], { amb: '#8C7060', emis: { win: .6 }, lights: kitL, post: K => flame(K, 615, 972, 72, K.t, 1),
   fig: (u, t) => [
     { who: 'sis1', x: 1290, y: 1062, h: FH, face: 1, armA: .6 + bobT(t, 1.6, .12), bendA: .5, armB: .5 + bobT(t, 1.6, .12, 2), bendB: .6, lean: .14, bob: bobT(t, 1.6, 3) },
     { who: 'sis2', x: 1560, y: 1062, h: FH, face: -1, armA: .8 + bobT(t, 2.2, .2), bendA: .7, lean: .08, head: bobT(t, .7, .1), bob: bobT(t, 2, 2, 1) },
@@ -150,7 +161,7 @@ const fatherBench = (o = {}) => Object.assign({ who: 'father', x: 1800, y: 1030,
 S('03-1', 50, 59, 'houseExt', { sky: 'night' }, [[1420, 780, 1.2], [1680, 860, 1.8]], { amb: '#474878', emis: { win: 1, sky: 1 }, lights: () => winL(),
   pre: K => fxSmoke(K, 1621, 438), post: winSil, fig: () => [fatherBench()] });
 S('03-2', 59, 65, 'dining', {}, [[1860, 670, 1.9], [1900, 655, 2.1]], { amb: '#4C3C38', lights: lampL,
-  post: K => { const c = K.c; c.save(); c.beginPath(); c.rect(1902, 522, 186, 226); c.clip(); c.fillStyle = 'rgba(126,146,206,.34)'; c.fillRect(1902, 522, 186, 226); drawFig(c, { who: 'father', x: 2004, y: 762, h: 118, pose: 'sit', face: -1, head: .5, sil: .8 }); c.restore(); },
+  post: K => { kn(K.em, 1995, 526, 1995, 744, 180, '#6E82BE', '#56689E', { seed: 730, alpha: .5, over: 1 }); drawFig(K.em, K.em, { who: 'father', x: 2004, y: 747, h: 112, pose: 'sit', face: -1, head: .5, sil: .8, seed: 74 }); },   // 窗外長椅上的父親
   fig: (u, t) => dinner(t, { noF: 1, noM: 1 }).concat([{ who: 'mother', x: 1680, y: 1062, h: FH, pose: 'sit', face: 1, head: -.1, armA: .7, bendA: .8 }]) });
 S('03-3', 65, 72, 'dining', {}, [[1200, 710, 1.9], [1240, 690, 2.1]], { amb: '#4C3C38', lights: lampL, post: lampFlame,
   fig: (u, t) => { const q = 1 - sm01(u, .25, .4), turn = u > .3 && u < .62, up = sm01(u, .6, .7);
@@ -177,7 +188,7 @@ S('04-4', 93, 98, 'houseExt', { sky: 'night' }, [[1640, 925, 1.85], [1620, 925, 
     { who: 'sis1', x: 1722, y: 1016, h: EH, face: 1, head: sm01(u, .5, .7) * .4, armA: .3, armB: .1, lean: sm01(u, .5, .7) * .06 }] });
 
 // 05 深夜離家
-S('05-1', 98, 106, 'bedroom', {}, [[1300, 790, 1.5], [1640, 800, 1.5]], { amb: '#34364F', emis: { moon: .9 },
+S('05-1', 98, 106, 'bedroom', {}, [[1300, 790, 1.5], [1640, 800, 1.5]], { amb: '#34364F', boost: 1.85, emis: { moon: .9 },
   lights: () => [{ x: 1150, y: 580, r: 430, c: MOON, a: .5 }, { x: 1500, y: 1100, r: 560, c: MOON, a: .42 }],
   fig: (u, t) => [
     { sleep: 1, who: 'sis2', x: 1440, y: 962, len: 330, br: Math.sin(t * 1.3) * 3, blanket: '#9C7C5E' },
@@ -196,7 +207,7 @@ S('05-3', 112, 120, 'houseExt', { sky: 'night' }, [[1000, 870, 1.5], [1280, 720,
 
 // 06 進城
 S('06-1', 120, 126, 'map', {}, [[1280, 720, 1.2], [1300, 705, 1.3]], { post: K => { mapRoute(K, sm01(K.u, .04, .96)); fxDayNight(K, K.u); } });
-S('06-2', 126, 133, 'street', {}, [[980, 780, 1.25], [1440, 780, 1.25]], { amb: '#F6EADA', post: K => fxHaze(K, 300, 260, 1500, '#FFF0D0', .32),
+S('06-2', 126, 133, 'street', {}, [[980, 780, 1.25], [1440, 780, 1.25]], { amb: '#F6EADA', ov: K => fxHaze(K, 300, 260, 1500, '#FFF0D0', .32),
   fig: (u, t) => crowd(t, 10, 1250, 1120).concat([{ who: 'sis1', x: 1250, y: 1120, h: FH + 10, face: 1, lean: .16, head: .35, bag: 1, armA: .9, bendA: 1.5, bob: bobT(t, .4, 1.5) }]) });
 const tavL = (a = .8) => [{ x: 1900, y: 800, r: 430, c: WARM, a }, { x: 2110, y: 800, r: 430, c: WARM, a }, { x: 2320, y: 800, r: 430, c: WARM, a }];
 S('06-3', 133, 139, 'street', {}, [[2060, 700, 1.9], [2090, 690, 2.1]], { amb: '#8E7480', emis: { tavern: 1 }, lights: () => tavL(),
@@ -225,7 +236,7 @@ S('07-2', 162, 170, 'porch', {}, [[1500, 790, 1.5], [1560, 780, 1.65]], { amb: '
     return [
       { who: 'sis1', x: 1640, y: 1056, h: 400, face: -1, over: true, sil: .32, armA: lerp(.14, 1.15, sm01(u, .24, .36)) - sm01(u, .44, .56) * .5, bendA: .5, purse: u > .4, lean: bow * .85, head: bow * .3 },
       { who: 'master', x: 1280, y: 1170, h: 560, face: 0, armA: lerp(.15, 1.15, give), bendA: .3, purse: u > .1 && u <= .4 }]; } });
-S('07-3', 170, 178, 'gate', {}, [[900, 800, 1.35], [1280, 720, 1.0]], { amb: '#F2E6D8', emis: { sun: 1 }, post: K => fxHaze(K, 1900, 600, 1300, '#FFF0D0', .3),
+S('07-3', 170, 178, 'gate', {}, [[900, 800, 1.35], [1280, 720, 1.0]], { amb: '#F2E6D8', emis: { sun: 1 }, ov: K => fxHaze(K, 1900, 600, 1300, '#FFF0D0', .3),
   fig: (u, t, A) => { const q = along(A.RD, lerp(.03, .6, u)), f = along(A.RD, lerp(0, .13, sm01(u, .42, 1)));
     return [u > .4 ? { who: 'follower', x: f[0] - 30, y: f[1], h: 200, face: 1, walk: u < .95 ? t * 4 : null, sil: lerp(.75, .25, sm01(u, .42, .8)) } : null,
       { who: 'sis1', x: q[0], y: q[1], h: 190 * (1 + (q[1] - 1036) / 210), face: 1, bag: 1, walk: t * 5.5, purse: 1, armA: .7, bendA: 1.2 }]; } });
@@ -241,12 +252,12 @@ S('08-3', 190, 198, 'houseExt', { sky: 'day' }, [[1150, 870, 1.5], [1180, 860, 1
 
 // 09–10 長談、再出發、爐邊
 S('09-1', 198, 204, 'bedroom', {}, [[1660, 830, 1.9], [1690, 820, 2.0]], { amb: '#2E2426', lights: () => [{ x: 1378, y: 920, r: 680, c: WARM, a: 1, fl: .8, glow: .5 }],
-  pre: K => jarLamp(K.c, 1378, 948), post: K => flame(K.c, 1378, 932, 14, K.t, 4),
+  pre: K => jarLamp(K, 1378, 948), post: K => flame(K, 1378, 932, 14, K.t, 4),
   fig: (u, t) => { const d = sm01(u, .35, .9); return [
     { who: 'sis1', x: 1560, y: 1052, h: FH, pose: 'sit', face: 1, lean: d * .2, head: d * .38, armA: .6, bendA: .9 },
     { who: 'sis2', x: 1745, y: 1052, h: FH, pose: 'sit', face: -1, armA: .9 + bobT(t, 1, .25), bendA: 1.3, bob: bobT(t, 1.6, 2) },
     { who: 'sis3', x: 1905, y: 1052, h: FH, pose: 'sit', face: -1, armA: .7, bendA: 1.4, bob: bobT(t, 1.4, 2, 2), head: .1 }]; } });
-function jarLamp(c, x, y) { wash(c, [[x - 20, y], [x - 26, y - 14], [x - 8, y - 22], [x + 8, y - 22], [x + 26, y - 14], [x + 20, y]], '#A0623C', { fast: true, smooth: true, pen: .7 }); }
+function jarLamp(K, x, y) { kn(K.lit, x, y - 23, x, y, 50, '#A0623C', '#7A4A2C', { seed: 740, taper: .35, over: 1, hgt: 1.2 }); }
 S('10-1', 204, 212, 'living', {}, [[1150, 790, 1.3], [1760, 850, 2.1]], { amb: '#4A3830', lights: () => fireL(1), post: K => fireFlames(K, 1),
   fig: (u, t) => [
     { who: 'sis1', x: 800, y: 1066, h: FH, face: 1, armA: 1.0 + bobT(t, 1.1, .3), bendA: .9, armB: .5, bob: bobT(t, 1.3, 2) },
@@ -275,15 +286,15 @@ S('11-1', 228, 234, 'living', {}, [[1600, 840, 1.9], [1640, 850, 2.0]], { amb: '
   fig: (u, t) => [{ who: 'father', x: 1338, y: 1066, h: FH, pose: 'sit', face: 1, head: lerp(.58, -.06, sm01(u, .5, .72)), lean: lerp(.3, .04, sm01(u, .5, .72)), armA: .7, bendA: .8 }] });
 S('11-2', 234, 241, 'living', {}, [[1750, 870, 2.2], [1750, 880, 2.4]], { amb: '#221A16', lights: () => [{ x: 1740, y: 830, r: 950, c: GOLD, a: 1, glow: .55 }],
   post: K => coinBags(K, 1, { fall: seg01(K.u, .45, .75) }) });
-S('11-3', 241, 245, 'chimneyUp', {}, [[1280, 720, 1.34], [1280, 720, 1.5]], { amb: '#5A4636', emis: { sky: 1 }, lights: () => [{ x: 1280, y: 1500, r: 1200, c: GOLD, a: .85 }],
-  post: K => { const c = K.c, u = K.u; c.save(); c.fillStyle = '#FFFFFF';
-    for (let i = 0; i < 16; i++) { const ph = (K.t * .22 + hash1(i * 3.3)) % 1, an = hash1(i * 5.1) * 6.283, d = ph * 150; c.globalAlpha = .9 * (1 - ph); c.beginPath(); c.arc(1280 + Math.cos(an) * d * (.3 + hash1(i)), 720 + Math.sin(an) * d * (.3 + hash1(i * 2)), 2 + ph * 6, 0, 7); c.fill(); }
-    c.globalAlpha = 1; c.fillStyle = '#100A07'; const hy = 1640 - sm01(u, .08, .5) * 330;
-    c.beginPath(); c.ellipse(1280, hy, 190, 220, 0, 0, 7); c.fill(); c.beginPath(); c.ellipse(1280, hy + 330, 520, 240, 0, 0, 7); c.fill(); c.restore(); } });
+S('11-3', 241, 245, 'chimneyUp', {}, [[1280, 720, 1.34], [1280, 720, 1.5]], { amb: '#5A4636', boost: 1.9, emis: { sky: 1 }, lights: () => [{ x: 1280, y: 1500, r: 1200, c: GOLD, a: .85 }],
+  post: K => { const u = K.u, S = K.em;   // 飄落的亮點，以及探進煙囪口的頭與肩
+    for (let i = 0; i < 16; i++) { const ph = (K.t * .22 + hash1(i * 3.3)) % 1, an = hash1(i * 5.1) * 6.283, d = ph * 150, r = 3 + ph * 7; db(S, 1280 + Math.cos(an) * d * (.3 + hash1(i)), 720 + Math.sin(an) * d * (.3 + hash1(i * 2)), r * 2, r * 2, '#FFFFFF', '#FFF6DC', { seed: 750 + i, type: BRUSH, alpha: .9 * (1 - ph) }); }
+    const hy = 1640 - sm01(u, .08, .5) * 330;
+    db(S, 1280, hy + 330, 1060, 500, '#100A07', '#1E1410', { seed: 770, hgt: .6 }); db(S, 1280, hy, 390, 450, '#100A07', '#1E1410', { seed: 771, hgt: .6 }); } });
 const snowExt = { amb: '#56608E', emis: { sky: 1, win: 1 } };
 S('11-4', 245, 252, 'houseExt', { sky: 'night', snow: 1 }, [[1480, 710, 1.5], [1560, 670, 1.75]], Object.assign({}, snowExt, {
   lights: () => winL(.8, GOLD).concat([{ x: 1381, y: 930, r: 220, c: GOLD, a: .8 }]),
-  pre: K => { doorOpen(K, .9); const k = (K.lt * .5) % 1; if (K.u < .6) coinBag(K.c, 1621, lerp(380, 440, k), .5, K.t, 1); },
+  pre: K => { doorOpen(K, .9); const k = (K.lt * .5) % 1; if (K.u < .6) coinBag(K.em, 1621, lerp(380, 440, k), .6, K.t, 1); },
   post: K => fxSnow(K),
   fig: (u, t) => { const st = sm01(u, .6, .68); return [
     { who: 'nick', x: 1556, y: 615, h: EH * 1.05, face: 1, hood: true, sack: 1, lean: lerp(.28, -.22, st), armA: lerp(1.5 + bobT(t, .5, .2), 2.5, st), bendA: .3, armB: lerp(.2, 2.2, st) },
@@ -330,11 +341,9 @@ S('12-3', 277, 286, 'houseExt', { sky: 'night', snow: 1 }, [[1450, 870, 1.6], [1
 
 // 13 片尾
 S('13-1', 286, 300, 'map', {}, [[700, 940, 2.0], [1280, 720, 1.0]], { xf: 2.2,
-  post: K => { const c = K.c, A = K.A, g = sm01(K.u, .12, .7); c.save(); c.strokeStyle = '#5A3A22'; c.lineWidth = 4; c.setLineDash([16, 13]); c.lineCap = 'round'; c.globalAlpha = .8;
-    A.OTH.forEach((o, i) => { const k = clamp(g * 1.4 - i * .08); if (k <= 0) return; c.beginPath(); c.moveTo(A.V[0], A.V[1] - 20); c.lineTo(lerp(A.V[0], o[0], k), lerp(A.V[1] - 20, o[1], k)); c.stroke(); });
-    c.setLineDash([]); const q = [lerp(A.V[0], A.OTH[0][0], clamp(g * 1.4)), lerp(A.V[1] - 20, A.OTH[0][1], clamp(g * 1.4))];
-    c.globalAlpha = 1; c.fillStyle = '#B3261E'; c.beginPath(); c.moveTo(q[0] - 13, q[1] + 6); c.lineTo(q[0], q[1] - 26); c.lineTo(q[0] + 13, q[1] + 6); c.closePath(); c.fill(); c.beginPath(); c.arc(q[0], q[1] - 32, 9, 0, 7); c.fill(); c.strokeStyle = INK; c.lineWidth = 1.4; c.stroke();
-    c.restore(); },
+  post: K => { const A = K.A, g = sm01(K.u, .12, .7), V = [A.V[0], A.V[1] - 20];   // 從這個村子出發，把溫暖送到其他村子
+    A.OTH.forEach((o, i) => { const k = clamp(g * 1.4 - i * .08); if (k > 0) dashLine(K.lit, [V, o], k, { seed: 800 + i * 40, alpha: .8 }); });
+    const k0 = clamp(g * 1.4); mapPin(K.lit, [lerp(V[0], A.OTH[0][0], k0), lerp(V[1], A.OTH[0][1], k0)], '#C4281E', 990, 1.15); },
   ui: K => epilogue(K.c, K.lt) });
 
 // ---------- 字幕（絕對時間）。who 供配音分配聲線：vo 旁白、其餘為角色

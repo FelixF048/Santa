@@ -1,5 +1,5 @@
 #!/bin/bash
-# 一鍵流程：安裝 → （有 GPU 時測速）→ 渲染 → 配樂 → 配音 → 驗證
+# 一鍵流程：安裝 → 找出能用的 GPU 繪圖方式 → 渲染 → 配樂 → 配音 → 驗證
 #   bash colab/run_all.sh [workers]
 # 成品：out/santa.mp4（有聲）、out/santa_silent.mp4（無聲）、out/check/sheet.jpg（抽格）
 set -e
@@ -21,30 +21,34 @@ pip -q install edge-tts faster-whisper opencc-python-reimplemented
 node -v; ffmpeg -version | head -1
 
 N=$(nproc)
-W=${1:-$(( N > 2 ? (N > 9 ? 8 : N - 1) : 2 ))}
 
-# 有 GPU 時，先各渲染 3 秒比較「CPU 繪圖」與「GPU 繪圖」：GPU 版要更快而且畫面一致（PSNR ≥ 35 dB）才採用
-if nvidia-smi -L > /dev/null 2>&1 && [ -z "$SANTA_GPU" ]; then
-  echo "== GPU 繪圖測速（245–248 秒，雪夜場景）=="
-  a=$(date +%s%N); node render/render.mjs --from 245 --to 248 --workers 1 --out out/bench_cpu.mp4 > /dev/null; b=$(date +%s%N)
-  cpu_ms=$(( (b - a) / 1000000 )); echo "CPU 繪圖：${cpu_ms} ms"
-  a=$(date +%s%N)
-  if SANTA_GPU=1 timeout 180 node render/render.mjs --from 245 --to 248 --workers 1 --out out/bench_gpu.mp4 > /dev/null 2>&1; then
-    b=$(date +%s%N); gpu_ms=$(( (b - a) / 1000000 )); echo "GPU 繪圖：${gpu_ms} ms"
-    psnr=$(ffmpeg -hide_banner -nostats -i out/bench_cpu.mp4 -i out/bench_gpu.mp4 -lavfi psnr -f null - 2>&1 | grep -o 'average:[0-9.inf]*' | tail -1 | cut -d: -f2)
-    echo "兩者畫面差異 PSNR：${psnr} dB"
-    if [ "$gpu_ms" -lt "$cpu_ms" ] && python3 -c "import sys; p='$psnr'; sys.exit(0 if p=='inf' or float(p)>=35 else 1)"; then
-      export SANTA_GPU=1; echo "→ 採用 GPU 繪圖"
-    else
-      echo "→ 維持 CPU 繪圖（GPU 沒有比較快，或畫面不一致）"
-    fi
-  else
-    echo "GPU 繪圖失敗或逾時 → 維持 CPU 繪圖"
+# 畫面是 WebGL2（厚塗引擎），一定要讓無頭瀏覽器用到顯示卡才快：依序試 egl、vulkan，各渲染 1 秒，
+# 看瀏覽器回報的繪圖裝置是不是 NVIDIA。都不行才退回純 CPU 的軟體繪圖（很慢，改用 1 倍取樣）。
+MODE=${SANTA_GL:-}
+if [ -z "$MODE" ]; then
+  MODE=swiftshader
+  if nvidia-smi -L > /dev/null 2>&1; then
+    for m in egl vulkan; do
+      echo "== 測試 GPU 繪圖：$m =="
+      if out=$(SANTA_GL=$m timeout 300 node render/render.mjs --from 248 --to 249 --workers 1 --out out/bench_$m.mp4 2>&1); then
+        echo "$out" | grep -E "renderer|done" || true
+        if echo "$out" | grep -E "renderer:" | grep -q -i -E "nvidia|tesla"; then MODE=$m; break; fi
+      else
+        echo "$out" | tail -3; echo "→ $m 不能用"
+      fi
+    done
   fi
 fi
+if [ "$MODE" = swiftshader ]; then
+  SS=${SANTA_SS:-1}; W=${1:-2}
+  echo "!! 沒有用到顯示卡，改用軟體繪圖（1 倍取樣）。全片可能要數小時；建議改用 T4 GPU 執行階段。"
+else
+  SS=${SANTA_SS:-2}; W=${1:-$(( N > 2 ? (N > 7 ? 6 : N - 1) : 2 ))}
+fi
+export SANTA_GL=$MODE
 
-echo "== 渲染全片（${W} 個平行分段，SANTA_GPU=${SANTA_GPU:-0}）=="
-node render/render.mjs --fps 24 --workers "$W"
+echo "== 渲染全片（${W} 個平行分段，繪圖 ${MODE}，取樣 ${SS} 倍）=="
+node render/render.mjs --fps 24 --workers "$W" --ss "$SS"
 
 echo "== 配樂 =="
 python3 colab/music.py
