@@ -18,6 +18,11 @@ if [ ! -d node_modules/playwright ]; then
   npx playwright install --with-deps chromium > /dev/null 2>&1
 fi
 pip -q install edge-tts faster-whisper opencc-python-reimplemented
+if nvidia-smi -L > /dev/null 2>&1; then
+  # Colab 的 GPU 執行階段只裝了運算用的驅動；補上同一代的繪圖函式庫，無頭瀏覽器才用得到顯示卡
+  V=$(nvidia-smi --query-gpu=driver_version --format=csv,noheader | head -1)
+  apt-get -qq install -y vulkan-tools "libnvidia-gl-${V%%.*}" > /dev/null 2>&1 || echo "libnvidia-gl-${V%%.*} 裝不起來，GPU 繪圖可能用不了"
+fi
 node -v; ffmpeg -version | head -1
 
 N=$(nproc)
