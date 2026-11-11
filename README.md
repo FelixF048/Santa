@@ -11,29 +11,20 @@
 
 ## 在 Colab 渲染
 
-開啟 [colab/render_colab.ipynb](https://colab.research.google.com/github/FelixF048/Santa/blob/main/colab/render_colab.ipynb)，依序執行每一格。
+開啟 [colab/render_colab.ipynb](https://colab.research.google.com/github/FelixF048/Santa/blob/impasto/colab/render_colab.ipynb)，先選 **T4 GPU** 執行階段，再依序執行每一格。
 
-最省事的做法是一鍵流程（安裝、渲染、配樂、配音、驗證一次跑完）：
-
-```python
-!git clone -q https://github.com/FelixF048/Santa.git /content/Santa || git -C /content/Santa pull -q
-%cd /content/Santa
-!bash colab/run_all.sh
-```
-
-只想渲染無聲畫面，貼上這一格：
+也可以在任何筆記本貼上這一格，一次跑完安裝、渲染、配樂、配音、驗證（厚塗版目前在 `impasto` 分支）：
 
 ```python
-!git clone https://github.com/FelixF048/Santa.git
-%cd Santa
-!apt-get -qq install -y fonts-noto-cjk ffmpeg > /dev/null && fc-cache -f
-!npm install --no-audit --no-fund && npx playwright install --with-deps chromium
-!node render/render.mjs --fps 24
+!cd /content && rm -rf Santa && git clone -q -b impasto https://github.com/FelixF048/Santa.git Santa
+!cd /content/Santa && bash colab/run_all.sh
 ```
 
-輸出在 `out/santa_silent.mp4`（無聲，字幕已燒進畫面）。
+輸出：`out/santa.mp4`（有聲）、`out/santa_silent.mp4`（無聲，字幕已燒進畫面）、`out/check/sheet.jpg`（抽格）。
 
-畫面是 WebGL2，**一定要讓無頭瀏覽器用到顯示卡**：請選 T4 GPU 執行階段。`run_all.sh` 會自動試出能用的 GPU 繪圖方式（`SANTA_GL=egl` 或 `vulkan`），都不行才退回純 CPU 的軟體繪圖。偵測到 NVIDIA GPU 時，影片編碼也會改用 `h264_nvenc`。
+只想渲染無聲畫面：`node render/render.mjs --fps 24`（用 `SANTA_GL=egl` 指定 GPU 繪圖，見下方）。
+
+畫面是 WebGL2，**一定要讓無頭瀏覽器用到顯示卡**。`run_all.sh` 會自動補裝繪圖函式庫並試出能用的方式（`SANTA_GL=egl` 或 `vulkan`），都不行才退回純 CPU 的軟體繪圖。偵測到 NVIDIA GPU 時，影片編碼也會改用 `h264_nvenc`。
 
 ### 聲音：配樂、音效、配音
 
@@ -49,13 +40,14 @@
 
 ### 執行階段怎麼選
 
-厚塗引擎把每一格畫在 3840×2160 的內部畫布上（2 倍超取樣），這件事交給顯示卡很快，交給 CPU 很慢。本機實測（2026-11-11，無頭 Chromium，每格含 JPEG 輸出）：
+厚塗引擎把每一格畫在 3840×2160 的內部畫布上（2 倍超取樣），這件事交給顯示卡很快，交給 CPU 很慢。實測（2026-11-11，無頭 Chromium，每格含 JPEG 輸出）：
 
-| 繪圖方式 | 每格 | 全片 7200 格估計 |
+| 繪圖方式 | 每格 | 全片 7200 格 |
 |---|---|---|
-| 內建顯示卡（Intel UHD 770） | 約 0.2–0.3 秒 | 單一分段約 30 分鐘 |
-| 純 CPU 軟體繪圖（SwiftShader，12 核），2 倍取樣 | 約 2–4 秒 | 數小時 |
-| 純 CPU 軟體繪圖，1 倍取樣（`--ss 1`） | 約 0.8–1.5 秒 | 約 2 小時 |
+| **Colab T4 + 8 核，6 個平行分段** | 平均約 0.026 秒 | **185 秒（實測）** |
+| 內建顯示卡（Intel UHD 770），單一分段 | 約 0.2–0.3 秒 | 約 30 分鐘（估計） |
+| 純 CPU 軟體繪圖（SwiftShader，12 核），2 倍取樣 | 約 2–4 秒 | 數小時（估計） |
+| 純 CPU 軟體繪圖，1 倍取樣（`--ss 1`） | 約 0.8–1.5 秒 | 約 2 小時（估計） |
 
 - 在 Colab 請選 **T4 GPU**；「大量 RAM」會多幾個 CPU 核心，可以多開幾個平行分段。
 - Colab 的 GPU 執行階段只裝了運算用的驅動，瀏覽器預設用不到顯示卡。`run_all.sh` 會補裝同一代的 `libnvidia-gl`，並改用完整 Chromium 的新式無頭模式；實測（Tesla T4）1 秒的畫面從 67 秒降到 7 秒。
@@ -109,6 +101,8 @@ node render/devserver.mjs
 ## 目前狀態
 
 - 厚塗版的 43 段鏡頭都已在瀏覽器抽格檢查過，沒有執行錯誤；4 個「刷上去」的轉場也看過中間格。
+- 已在 Colab（Tesla T4）渲染出完整成品：1920×1080、7200 格、300 秒，音訊 48 kHz 立體聲。
+- 成品已通過的檢查：整體響度 −16.7 LUFS、真峰值 −1.5 dBFS、沒有超過 1.5 秒的靜音、片尾有配樂；語音辨識 28 句裡 27 句涵蓋率達 60% 以上（「那我去城裡工作！」57%，「城裡」被認成同音字）。
 - 純 CPU 的無頭瀏覽器跑得動（WebGL2 與浮點畫布都支援），只是很慢。
 - 配樂、音效、配音沿用水彩版的做法與時間，沒有為厚塗另外設計聲音（例如畫刀刮過的聲音）。
 - 配樂是程式合成的簡單編曲，沒有經過人耳試聽調整；語音辨識只能證明聽得出內容，不能證明語氣自然。
