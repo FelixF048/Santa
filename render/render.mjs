@@ -64,11 +64,16 @@ const base = `http://127.0.0.1:${srv.address().port}`;
 const GLMODE = process.env.SANTA_GL || (process.env.SANTA_GPU === '1' ? 'egl' : 'swiftshader');
 const glArgs = ({
   egl: ['--use-gl=angle', '--use-angle=gl-egl', '--ignore-gpu-blocklist', '--enable-gpu'],
-  vulkan: ['--use-gl=angle', '--use-angle=vulkan', '--enable-features=Vulkan', '--ignore-gpu-blocklist', '--enable-gpu'],
+  vulkan: ['--use-angle=vulkan', '--enable-features=Vulkan', '--disable-vulkan-surface', '--ignore-gpu-blocklist', '--enable-gpu'],
   swiftshader: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'],
   native: ['--ignore-gpu-blocklist', '--enable-gpu'],
 })[GLMODE] || [];
-const browser = await chromium.launch({ args: ['--no-sandbox', '--font-render-hinting=none', ...glArgs] });
+// 舊式的無頭殼層（headless shell）用不到顯示卡；要用 GPU 時改開完整的 Chromium，並用新式無頭模式
+const GPU = GLMODE === 'egl' || GLMODE === 'vulkan' || GLMODE === 'native';
+const extra = (process.env.SANTA_CHROME_ARGS || '').split(' ').filter(Boolean);
+const browser = await chromium.launch(GPU
+  ? { headless: false, args: ['--headless=new', '--no-sandbox', '--font-render-hinting=none', ...glArgs, ...extra] }
+  : { args: ['--no-sandbox', '--font-render-hinting=none', ...glArgs, ...extra] });
 fs.mkdirSync(OUT, { recursive: true });
 
 try {
